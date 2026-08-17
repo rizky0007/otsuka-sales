@@ -1,30 +1,23 @@
-"use client";
-
 import { createBrowserClient } from "@supabase/ssr";
 
-let client: ReturnType<typeof createBrowserClient> | undefined;
-
 export function createClient() {
-  if (client) {
-    return client;
-  }
+  const supabaseUrl =
+    process.env.NEXT_PUBLIC_SUPABASE_URL;
 
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+  const supabaseKey =
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 
-  if (!url) {
+  if (
+    !supabaseUrl ||
+    !supabaseKey
+  ) {
     throw new Error(
-      "NEXT_PUBLIC_SUPABASE_URL belum tersedia."
+      "Supabase URL dan Publishable Key belum tersedia."
     );
   }
 
-  if (!key) {
-    throw new Error(
-      "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY belum tersedia."
-    );
-  }
-
-  client = createBrowserClient(url, key);
-
-  return client;
+  return createBrowserClient(
+    supabaseUrl,
+    supabaseKey
+  );
 }
