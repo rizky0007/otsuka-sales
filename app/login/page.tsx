@@ -2,37 +2,28 @@
 
 import {
   FormEvent,
+  useEffect,
   useState,
 } from "react";
-
+import { useRouter } from "next/navigation";
 import {
+  ArrowRight,
   Eye,
   EyeOff,
   LockKeyhole,
+  LogIn,
+  ShieldCheck,
   UserRound,
   AlertCircle,
+  Loader2,
   CheckCircle2,
-  RefreshCw,
-  ArrowRight,
-  ShieldCheck,
-  BarChart3,
 } from "lucide-react";
 
-type LoginResponse = {
-  success?: boolean;
-  message?: string;
-  user?: {
-    id?: string;
-    email?: string | null;
-  };
-};
-
 export default function LoginPage() {
-  const [username, setUsername] =
-    useState("");
+  const router = useRouter();
 
-  const [password, setPassword] =
-    useState("");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
 
   const [showPassword, setShowPassword] =
     useState(false);
@@ -40,11 +31,60 @@ export default function LoginPage() {
   const [loading, setLoading] =
     useState(false);
 
-  const [error, setError] =
-    useState("");
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
 
-  const [success, setSuccess] =
-    useState("");
+  // =====================================================
+  // JIKA SUDAH LOGIN
+  // =====================================================
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function checkSession() {
+      try {
+        const response = await fetch(
+          "/api/auth/session",
+          {
+            method: "GET",
+            cache: "no-store",
+            credentials: "include",
+          }
+        );
+
+        if (!response.ok) return;
+
+        const contentType =
+          response.headers.get("content-type") || "";
+
+        if (
+          !contentType.includes(
+            "application/json"
+          )
+        ) {
+          return;
+        }
+
+        const data = await response.json();
+
+        if (
+          mounted &&
+          data?.authenticated
+        ) {
+          router.replace("/");
+        }
+      } catch {
+        // Tidak perlu menampilkan error.
+        // User tetap bisa login.
+      }
+    }
+
+    checkSession();
+
+    return () => {
+      mounted = false;
+    };
+  }, [router]);
 
   // =====================================================
   // LOGIN
@@ -60,20 +100,20 @@ export default function LoginPage() {
     setError("");
     setSuccess("");
 
-    const usernameValue =
+    const cleanUsername =
       username.trim();
 
-    // ===================================================
-    // VALIDASI
-    // ===================================================
-
-    if (!usernameValue) {
-      setError("Username wajib diisi.");
+    if (!cleanUsername) {
+      setError(
+        "Username wajib diisi."
+      );
       return;
     }
 
     if (!password) {
-      setError("Password wajib diisi.");
+      setError(
+        "Password wajib diisi."
+      );
       return;
     }
 
@@ -92,44 +132,33 @@ export default function LoginPage() {
           headers: {
             "Content-Type":
               "application/json",
+
             Accept:
               "application/json",
           },
 
-          /*
-           * Sangat penting.
-           *
-           * Browser akan menerima dan mengirim
-           * cookie session dari API.
-           */
           credentials: "include",
 
-          /*
-           * Jangan menggunakan response cache.
-           */
           cache: "no-store",
 
           body: JSON.stringify({
-            username: usernameValue,
+            username: cleanUsername,
             password,
           }),
         }
       );
 
       // =================================================
-      // PARSE RESPONSE
+      // BACA RESPONSE DENGAN AMAN
       // =================================================
 
-      let result: LoginResponse;
+      const contentType =
+        response.headers.get(
+          "content-type"
+        ) || "";
 
-      try {
-        result =
-          (await response.json()) as LoginResponse;
-      } catch {
-        throw new Error(
-          "Response dari server tidak valid."
-        );
-      }
+      const rawText =
+        await response.text();
 
       console.log(
         "[LOGIN] HTTP STATUS:",
@@ -137,9 +166,58 @@ export default function LoginPage() {
       );
 
       console.log(
-        "[LOGIN] SUCCESS:",
-        result.success
+        "[LOGIN] CONTENT TYPE:",
+        contentType
       );
+
+      console.log(
+        "[LOGIN] RESPONSE:",
+        rawText
+      );
+
+      let data: any = null;
+
+      // =================================================
+      // RESPONSE JSON
+      // =================================================
+
+      if (
+        contentType.includes(
+          "application/json"
+        )
+      ) {
+        try {
+          data = JSON.parse(rawText);
+        } catch (jsonError) {
+          console.error(
+            "[LOGIN] JSON PARSE ERROR:",
+            jsonError
+          );
+        }
+      }
+
+      // =================================================
+      // RESPONSE BUKAN JSON
+      // =================================================
+
+      if (!data) {
+        if (
+          rawText.includes(
+            "<!DOCTYPE"
+          ) ||
+          rawText.includes(
+            "<html"
+          )
+        ) {
+          throw new Error(
+            "Server mengembalikan halaman HTML. Pastikan API /api/auth/login tersedia dan tidak diarahkan oleh middleware."
+          );
+        }
+
+        throw new Error(
+          "Response dari server tidak valid."
+        );
+      }
 
       // =================================================
       // LOGIN GAGAL
@@ -147,10 +225,10 @@ export default function LoginPage() {
 
       if (
         !response.ok ||
-        !result.success
+        data.success !== true
       ) {
         throw new Error(
-          result.message ||
+          data.message ||
             "Username atau password salah."
         );
       }
@@ -160,57 +238,43 @@ export default function LoginPage() {
       // =================================================
 
       console.log(
-        "[LOGIN] Login berhasil."
-      );
-
-      console.log(
-        "[LOGIN] User:",
-        result.user
+        "[LOGIN] LOGIN BERHASIL",
+        data
       );
 
       setError("");
 
       setSuccess(
-        "Login berhasil. Mengalihkan ke dashboard..."
+        "Login berhasil. Membuka dashboard..."
       );
 
-      /*
-       * Beri waktu sedikit agar browser selesai
-       * menerima Set-Cookie dari response API.
-       */
+      // =================================================
+      // PENTING:
+      // Cookie dari API sudah diterima browser.
+      //
+      // Tunggu sedikit agar cookie/session
+      // tersimpan sebelum pindah halaman.
+      // =================================================
+
       await new Promise(
         (resolve) =>
           setTimeout(resolve, 500)
       );
 
       // =================================================
-      // REDIRECT
+      // PINDAH KE DASHBOARD
       // =================================================
 
-      /*
-       * Gunakan full browser navigation.
-       *
-       * Ini sengaja tidak menggunakan:
-       *
-       * router.push("/")
-       * router.replace("/")
-       *
-       * karena session cookie dibuat oleh
-       * server API.
-       */
-      window.location.replace("/");
+      router.replace("/");
 
+      router.refresh();
     } catch (err) {
       console.error(
         "[LOGIN] ERROR:",
         err
       );
 
-      if (err instanceof TypeError) {
-        setError(
-          "Tidak dapat terhubung ke server. Periksa koneksi internet atau deployment."
-        );
-      } else if (
+      if (
         err instanceof Error
       ) {
         setError(err.message);
@@ -219,452 +283,386 @@ export default function LoginPage() {
           "Terjadi kesalahan saat login."
         );
       }
-
+    } finally {
       setLoading(false);
     }
   }
 
   // =====================================================
-  // UI
+  // ENTER KEY
   // =====================================================
 
-  return (
-    <main className="relative min-h-screen overflow-hidden bg-[#020617] text-white">
+  function handleUsernameKeyDown(
+    e: React.KeyboardEvent<HTMLInputElement>
+  ) {
+    if (e.key === "Enter") {
+      e.preventDefault();
 
+      const passwordInput =
+        document.getElementById(
+          "password"
+        ) as HTMLInputElement | null;
+
+      passwordInput?.focus();
+    }
+  }
+
+  return (
+    <main className="relative min-h-screen overflow-hidden bg-[#020817] text-white">
       {/* =================================================
           BACKGROUND
       ================================================= */}
 
       <div className="pointer-events-none absolute inset-0">
-
-        {/* Grid */}
+        {/* GRID */}
 
         <div
-          className="absolute inset-0 opacity-[0.18]"
+          className="absolute inset-0 opacity-[0.16]"
           style={{
-            backgroundImage:
-              `
+            backgroundImage: `
               linear-gradient(
-                rgba(59,130,246,0.18) 1px,
+                rgba(148,163,184,0.16) 1px,
                 transparent 1px
               ),
               linear-gradient(
                 90deg,
-                rgba(59,130,246,0.18) 1px,
+                rgba(148,163,184,0.16) 1px,
                 transparent 1px
               )
-              `,
+            `,
             backgroundSize:
               "52px 52px",
           }}
         />
 
-        {/* Blue glow */}
+        {/* BLUE GLOW */}
 
-        <div className="absolute -left-40 top-[-180px] h-[500px] w-[500px] rounded-full bg-blue-600/20 blur-[120px]" />
+        <div className="absolute -left-40 -top-40 h-[500px] w-[500px] rounded-full bg-blue-600/15 blur-[120px]" />
 
-        {/* Cyan glow */}
+        {/* CYAN GLOW */}
 
-        <div className="absolute -right-40 bottom-[-180px] h-[500px] w-[500px] rounded-full bg-cyan-500/15 blur-[120px]" />
+        <div className="absolute -bottom-48 -right-32 h-[500px] w-[500px] rounded-full bg-cyan-500/10 blur-[120px]" />
 
-        {/* Center glow */}
+        {/* CENTER GLOW */}
 
-        <div className="absolute left-1/2 top-1/2 h-[350px] w-[350px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-blue-500/10 blur-[120px]" />
+        <div className="absolute left-1/2 top-1/2 h-[500px] w-[700px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-blue-500/[0.03] blur-[100px]" />
       </div>
 
       {/* =================================================
-          CONTENT
+          HEADER
       ================================================= */}
 
-      <div className="relative z-10 flex min-h-screen flex-col">
+      <div className="relative z-10 flex min-h-screen items-center justify-center px-4 py-8 sm:px-6 lg:px-8">
+        <div className="w-full max-w-[760px]">
 
-        {/* =================================================
-            TOP BRAND
-        ================================================= */}
+          {/* BRAND */}
 
-        <header className="px-5 py-5 sm:px-8 sm:py-7">
+          <div className="mb-5 text-center sm:mb-7">
+            <div className="inline-flex items-center gap-2 rounded-full border border-slate-700/70 bg-slate-900/50 px-4 py-2 text-xs font-semibold tracking-[0.18em] text-slate-400 backdrop-blur-xl">
+              <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.8)]" />
 
-          <div className="mx-auto flex max-w-6xl items-center justify-center">
-
-            <div className="flex items-center gap-3">
-
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-white/[0.06] shadow-lg backdrop-blur-xl">
-
-                <BarChart3
-                  size={19}
-                  className="text-cyan-400"
-                />
-
-              </div>
-
-              <div>
-
-                <p className="text-sm font-bold tracking-wide text-white/90">
-                  Otsuka Sales
-                </p>
-
-                <p className="text-[10px] font-medium uppercase tracking-[0.22em] text-slate-500">
-                  Sales Management System
-                </p>
-
-              </div>
-
+              SALES MANAGEMENT SYSTEM
             </div>
-
           </div>
 
-        </header>
+          {/* =================================================
+              LOGIN CARD
+          ================================================= */}
 
-        {/* =================================================
-            MAIN
-        ================================================= */}
+          <section className="relative overflow-hidden rounded-[30px] border border-white/[0.10] bg-slate-900/70 shadow-[0_30px_100px_rgba(0,0,0,0.45)] backdrop-blur-2xl">
 
-        <section className="flex flex-1 items-center justify-center px-4 pb-8 pt-2 sm:px-6 sm:pb-12">
+            {/* TOP LINE */}
 
-          <div className="w-full max-w-[520px]">
+            <div className="absolute left-0 right-0 top-0 h-px bg-gradient-to-r from-transparent via-blue-500/70 to-transparent" />
 
-            {/* =================================================
-                GLASS CARD
-            ================================================= */}
+            {/* CARD CONTENT */}
 
-            <div className="relative overflow-hidden rounded-[28px] border border-white/[0.12] bg-slate-900/65 shadow-2xl shadow-black/40 backdrop-blur-2xl sm:rounded-[32px]">
-
-              {/* Top highlight */}
-
-              <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-blue-400/60 to-transparent" />
+            <div className="p-6 sm:p-9 md:p-12">
 
               {/* =================================================
-                  CARD CONTENT
+                  ACCESS BADGE
               ================================================= */}
 
-              <div className="px-6 py-7 sm:px-9 sm:py-9 md:px-10 md:py-10">
-
-                {/* =================================================
-                    SECURE BADGE
-                ================================================= */}
-
-                <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.05] px-3.5 py-2 backdrop-blur-xl">
-
-                  <span className="relative flex h-2 w-2">
-
-                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
-
-                    <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
-
-                  </span>
-
-                  <span className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
-                    Secure Access
-                  </span>
-
-                </div>
-
-                {/* =================================================
-                    TITLE
-                ================================================= */}
-
-                <div className="mb-8">
-
-                  <h1 className="text-[30px] font-black tracking-tight text-white sm:text-[36px]">
-                    Selamat datang kembali{" "}
-                    <span className="inline-block">
-                      👋
-                    </span>
-                  </h1>
-
-                  <p className="mt-2.5 max-w-md text-sm leading-6 text-slate-400 sm:text-base">
-                    Masuk menggunakan akun sales
-                    Anda untuk melanjutkan aktivitas.
-                  </p>
-
-                </div>
-
-                {/* =================================================
-                    ERROR
-                ================================================= */}
-
-                {error && (
-                  <div
-                    role="alert"
-                    className="mb-6 flex gap-3 rounded-2xl border border-red-400/25 bg-red-500/[0.10] p-4"
-                  >
-
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-500/15">
-
-                      <AlertCircle
-                        size={20}
-                        className="text-red-400"
-                      />
-
-                    </div>
-
-                    <div className="min-w-0">
-
-                      <p className="text-sm font-bold text-red-300">
-                        Login gagal
-                      </p>
-
-                      <p className="mt-1 text-xs leading-5 text-red-200/75 sm:text-sm">
-                        {error}
-                      </p>
-
-                    </div>
-
-                  </div>
-                )}
-
-                {/* =================================================
-                    SUCCESS
-                ================================================= */}
-
-                {success && (
-                  <div
-                    role="status"
-                    className="mb-6 flex gap-3 rounded-2xl border border-emerald-400/20 bg-emerald-500/[0.08] p-4"
-                  >
-
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-500/15">
-
-                      <CheckCircle2
-                        size={20}
-                        className="text-emerald-400"
-                      />
-
-                    </div>
-
-                    <div>
-
-                      <p className="text-sm font-bold text-emerald-300">
-                        Login berhasil
-                      </p>
-
-                      <p className="mt-1 text-xs leading-5 text-emerald-200/70 sm:text-sm">
-                        {success}
-                      </p>
-
-                    </div>
-
-                  </div>
-                )}
-
-                {/* =================================================
-                    FORM
-                ================================================= */}
-
-                <form
-                  onSubmit={handleLogin}
-                  noValidate
-                  className="space-y-5"
-                >
-
-                  {/* =================================================
-                      USERNAME
-                  ================================================= */}
-
-                  <div>
-
-                    <label
-                      htmlFor="username"
-                      className="mb-2.5 block text-xs font-black uppercase tracking-[0.14em] text-slate-400"
-                    >
-                      Username
-                    </label>
-
-                    <div className="group relative">
-
-                      <UserRound
-                        size={20}
-                        className="pointer-events-none absolute left-4 top-1/2 z-10 -translate-y-1/2 text-slate-500 transition-colors group-focus-within:text-blue-400"
-                      />
-
-                      <input
-                        id="username"
-                        name="username"
-                        type="text"
-                        value={username}
-                        onChange={(e) =>
-                          setUsername(
-                            e.target.value
-                          )
-                        }
-                        placeholder="Masukkan username"
-                        autoComplete="username"
-                        autoCapitalize="none"
-                        spellCheck={false}
-                        disabled={loading}
-                        className="h-14 w-full rounded-2xl border border-white/10 bg-white/[0.055] pl-12 pr-4 text-base font-semibold text-white outline-none transition-all placeholder:text-slate-600 hover:border-white/15 focus:border-blue-400/60 focus:bg-white/[0.08] focus:ring-4 focus:ring-blue-500/10 disabled:cursor-not-allowed disabled:opacity-50 sm:h-15"
-                      />
-
-                    </div>
-
-                  </div>
-
-                  {/* =================================================
-                      PASSWORD
-                  ================================================= */}
-
-                  <div>
-
-                    <div className="mb-2.5 flex items-center justify-between">
-
-                      <label
-                        htmlFor="password"
-                        className="block text-xs font-black uppercase tracking-[0.14em] text-slate-400"
-                      >
-                        Password
-                      </label>
-
-                    </div>
-
-                    <div className="group relative">
-
-                      <LockKeyhole
-                        size={20}
-                        className="pointer-events-none absolute left-4 top-1/2 z-10 -translate-y-1/2 text-slate-500 transition-colors group-focus-within:text-blue-400"
-                      />
-
-                      <input
-                        id="password"
-                        name="password"
-                        type={
-                          showPassword
-                            ? "text"
-                            : "password"
-                        }
-                        value={password}
-                        onChange={(e) =>
-                          setPassword(
-                            e.target.value
-                          )
-                        }
-                        placeholder="Masukkan password"
-                        autoComplete="current-password"
-                        disabled={loading}
-                        className="h-14 w-full rounded-2xl border border-white/10 bg-white/[0.055] pl-12 pr-14 text-base font-semibold text-white outline-none transition-all placeholder:text-slate-600 hover:border-white/15 focus:border-blue-400/60 focus:bg-white/[0.08] focus:ring-4 focus:ring-blue-500/10 disabled:cursor-not-allowed disabled:opacity-50 sm:h-15"
-                      />
-
-                      <button
-                        type="button"
-                        disabled={loading}
-                        onClick={() =>
-                          setShowPassword(
-                            (value) =>
-                              !value
-                          )
-                        }
-                        className="absolute right-3 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-xl text-slate-500 transition hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-                        aria-label={
-                          showPassword
-                            ? "Sembunyikan password"
-                            : "Tampilkan password"
-                        }
-                      >
-                        {showPassword ? (
-                          <EyeOff
-                            size={19}
-                          />
-                        ) : (
-                          <Eye
-                            size={19}
-                          />
-                        )}
-                      </button>
-
-                    </div>
-
-                  </div>
-
-                  {/* =================================================
-                      LOGIN BUTTON
-                  ================================================= */}
-
-                  <button
-                    type="submit"
-                    disabled={loading}
-                    className="group relative mt-2 flex h-14 w-full items-center justify-center gap-3 overflow-hidden rounded-2xl bg-gradient-to-r from-blue-600 via-blue-500 to-cyan-500 text-sm font-black text-white shadow-xl shadow-blue-600/20 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-2xl hover:shadow-blue-600/30 active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0 sm:h-15 sm:text-base"
-                  >
-
-                    {/* shine */}
-
-                    <span className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/20 to-transparent transition-transform duration-700 group-hover:translate-x-full" />
-
-                    {loading ? (
-                      <>
-                        <RefreshCw
-                          size={20}
-                          className="animate-spin"
-                        />
-
-                        <span>
-                          Memproses login...
-                        </span>
-                      </>
-                    ) : (
-                      <>
-                        <span>
-                          Masuk ke Dashboard
-                        </span>
-
-                        <ArrowRight
-                          size={21}
-                          className="transition-transform duration-200 group-hover:translate-x-1"
-                        />
-                      </>
-                    )}
-
-                  </button>
-
-                </form>
-
-                {/* =================================================
-                    SECURITY
-                ================================================= */}
-
-                <div className="mt-8">
-
-                  <div className="flex items-center gap-3">
-
-                    <div className="h-px flex-1 bg-white/[0.08]" />
-
-                    <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.18em] text-slate-600">
-
-                      <ShieldCheck
-                        size={14}
-                      />
-
-                      Secure Access
-
-                    </div>
-
-                    <div className="h-px flex-1 bg-white/[0.08]" />
-
-                  </div>
-
-                  <p className="mt-5 text-center text-xs leading-5 text-slate-600">
-                    Gunakan akun sales yang telah
-                    terdaftar untuk mengakses sistem.
-                  </p>
-
-                </div>
-
+              <div className="mb-7 inline-flex items-center gap-2 rounded-full border border-slate-700/80 bg-slate-800/60 px-4 py-2 text-xs font-bold tracking-[0.16em] text-slate-400">
+                <ShieldCheck
+                  size={15}
+                  className="text-emerald-400"
+                />
+
+                SECURE ACCESS
               </div>
 
+              {/* =================================================
+                  TITLE
+              ================================================= */}
+
+              <div className="mb-8">
+                <h1 className="text-[clamp(2rem,5vw,3.3rem)] font-black leading-[1.05] tracking-tight text-white">
+                  Selamat datang
+                  <br className="sm:hidden" />{" "}
+                  kembali{" "}
+                  <span className="inline-block">
+                    👋
+                  </span>
+                </h1>
+
+                <p className="mt-4 max-w-xl text-base leading-7 text-slate-400 sm:text-lg">
+                  Masuk menggunakan akun
+                  sales Anda untuk
+                  melanjutkan aktivitas.
+                </p>
+              </div>
+
+              {/* =================================================
+                  ERROR
+              ================================================= */}
+
+              {error && (
+                <div
+                  role="alert"
+                  className="mb-7 flex gap-4 rounded-2xl border border-red-400/25 bg-red-500/[0.10] p-4 sm:p-5"
+                >
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-red-500/15">
+                    <AlertCircle
+                      size={22}
+                      className="text-red-400"
+                    />
+                  </div>
+
+                  <div className="min-w-0">
+                    <p className="font-bold text-red-300">
+                      Login gagal
+                    </p>
+
+                    <p className="mt-1 break-words text-sm leading-6 text-red-200/75">
+                      {error}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* =================================================
+                  SUCCESS
+              ================================================= */}
+
+              {success && (
+                <div
+                  role="status"
+                  className="mb-7 flex gap-4 rounded-2xl border border-emerald-400/25 bg-emerald-500/[0.08] p-4 sm:p-5"
+                >
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-500/15">
+                    <CheckCircle2
+                      size={22}
+                      className="text-emerald-400"
+                    />
+                  </div>
+
+                  <div>
+                    <p className="font-bold text-emerald-300">
+                      Login berhasil
+                    </p>
+
+                    <p className="mt-1 text-sm text-emerald-200/70">
+                      Membuka dashboard...
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* =================================================
+                  FORM
+              ================================================= */}
+
+              <form
+                onSubmit={handleLogin}
+                className="space-y-6"
+              >
+
+                {/* =================================================
+                    USERNAME
+                ================================================= */}
+
+                <div>
+                  <label
+                    htmlFor="username"
+                    className="mb-2.5 block text-xs font-extrabold tracking-[0.14em] text-slate-400"
+                  >
+                    USERNAME
+                  </label>
+
+                  <div className="group relative">
+                    <UserRound
+                      size={21}
+                      className="pointer-events-none absolute left-5 top-1/2 -translate-y-1/2 text-slate-500 transition group-focus-within:text-blue-400"
+                    />
+
+                    <input
+                      id="username"
+                      name="username"
+                      type="text"
+                      value={username}
+                      onChange={(e) =>
+                        setUsername(
+                          e.target.value
+                        )
+                      }
+                      onKeyDown={
+                        handleUsernameKeyDown
+                      }
+                      placeholder="Masukkan username"
+                      autoComplete="username"
+                      autoCapitalize="none"
+                      spellCheck={false}
+                      disabled={loading}
+                      className="h-[62px] w-full rounded-2xl border border-slate-700/80 bg-slate-800/70 pl-14 pr-5 text-base font-semibold text-white outline-none transition-all placeholder:text-slate-500 hover:border-slate-600 focus:border-blue-500 focus:bg-slate-800 focus:ring-4 focus:ring-blue-500/10 disabled:cursor-not-allowed disabled:opacity-60"
+                    />
+                  </div>
+                </div>
+
+                {/* =================================================
+                    PASSWORD
+                ================================================= */}
+
+                <div>
+                  <label
+                    htmlFor="password"
+                    className="mb-2.5 block text-xs font-extrabold tracking-[0.14em] text-slate-400"
+                  >
+                    PASSWORD
+                  </label>
+
+                  <div className="group relative">
+                    <LockKeyhole
+                      size={21}
+                      className="pointer-events-none absolute left-5 top-1/2 -translate-y-1/2 text-slate-500 transition group-focus-within:text-blue-400"
+                    />
+
+                    <input
+                      id="password"
+                      name="password"
+                      type={
+                        showPassword
+                          ? "text"
+                          : "password"
+                      }
+                      value={password}
+                      onChange={(e) =>
+                        setPassword(
+                          e.target.value
+                        )
+                      }
+                      placeholder="Masukkan password"
+                      autoComplete="current-password"
+                      disabled={loading}
+                      className="h-[62px] w-full rounded-2xl border border-slate-700/80 bg-slate-800/70 pl-14 pr-14 text-base font-semibold text-white outline-none transition-all placeholder:text-slate-500 hover:border-slate-600 focus:border-blue-500 focus:bg-slate-800 focus:ring-4 focus:ring-blue-500/10 disabled:cursor-not-allowed disabled:opacity-60"
+                    />
+
+                    <button
+                      type="button"
+                      aria-label={
+                        showPassword
+                          ? "Sembunyikan password"
+                          : "Tampilkan password"
+                      }
+                      onClick={() =>
+                        setShowPassword(
+                          (value) =>
+                            !value
+                        )
+                      }
+                      disabled={loading}
+                      className="absolute right-3 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-xl text-slate-500 transition hover:bg-slate-700/70 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {showPassword ? (
+                        <EyeOff
+                          size={20}
+                        />
+                      ) : (
+                        <Eye
+                          size={20}
+                        />
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                {/* =================================================
+                    SUBMIT
+                ================================================= */}
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="group relative mt-2 flex h-[64px] w-full items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-r from-blue-600 via-blue-500 to-cyan-500 text-base font-extrabold text-white shadow-[0_15px_35px_rgba(37,99,235,0.25)] transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_20px_45px_rgba(37,99,235,0.35)] active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-70"
+                >
+                  {/* SHINE */}
+
+                  <span className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/15 to-transparent transition-transform duration-700 group-hover:translate-x-full" />
+
+                  {loading ? (
+                    <>
+                      <Loader2
+                        size={21}
+                        className="mr-3 animate-spin"
+                      />
+
+                      Memproses login...
+                    </>
+                  ) : (
+                    <>
+                      <LogIn
+                        size={21}
+                        className="mr-3"
+                      />
+
+                      Masuk ke Dashboard
+
+                      <ArrowRight
+                        size={22}
+                        className="ml-3 transition-transform duration-300 group-hover:translate-x-1"
+                      />
+                    </>
+                  )}
+                </button>
+              </form>
+
+              {/* =================================================
+                  DIVIDER
+              ================================================= */}
+
+              <div className="my-8 flex items-center gap-4">
+                <div className="h-px flex-1 bg-slate-800" />
+
+                <span className="text-[10px] font-bold tracking-[0.2em] text-slate-600">
+                  OTSUKA SALES
+                </span>
+
+                <div className="h-px flex-1 bg-slate-800" />
+              </div>
+
+              {/* =================================================
+                  FOOTER
+              ================================================= */}
+
+              <div className="text-center">
+                <p className="text-xs leading-6 text-slate-500 sm:text-sm">
+                  Gunakan akun yang telah
+                  terdaftar untuk mengakses
+                  sistem sales.
+                </p>
+              </div>
             </div>
+          </section>
 
-            {/* =================================================
-                FOOTER
-            ================================================= */}
+          {/* =================================================
+              BOTTOM
+          ================================================= */}
 
-            <p className="mt-5 text-center text-[10px] font-medium uppercase tracking-[0.15em] text-slate-700">
-              Otsuka Sales Management
-            </p>
-
-          </div>
-
-        </section>
-
+          <p className="mt-5 text-center text-[11px] text-slate-600">
+            Otsuka Sales Management System
+          </p>
+        </div>
       </div>
-
     </main>
   );
 }
