@@ -2,9 +2,46 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 export async function proxy(request: NextRequest) {
+  const pathname = request.nextUrl.pathname;
+
+  // =====================================================
+  // API TIDAK BOLEH DICEGAT PROXY
+  // =====================================================
+  //
+  // Khususnya:
+  //
+  // POST /api/auth/login
+  //
+  // API login harus bisa diakses ketika user BELUM login.
+  //
+
+  if (pathname.startsWith("/api/")) {
+    return NextResponse.next();
+  }
+
+  // =====================================================
+  // ROUTE PUBLIC
+  // =====================================================
+
+  const publicPaths = [
+    "/login",
+    "/register",
+  ];
+
+  const isPublicPath =
+    publicPaths.includes(pathname);
+
+  // =====================================================
+  // RESPONSE AWAL
+  // =====================================================
+
   let response = NextResponse.next({
     request,
   });
+
+  // =====================================================
+  // SUPABASE ENV
+  // =====================================================
 
   const supabaseUrl =
     process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -14,7 +51,7 @@ export async function proxy(request: NextRequest) {
 
   if (!supabaseUrl || !supabaseKey) {
     console.error(
-      "Supabase environment variables tidak ditemukan."
+      "[PROXY] Supabase environment variables tidak ditemukan."
     );
 
     return new NextResponse(
@@ -24,6 +61,10 @@ export async function proxy(request: NextRequest) {
       }
     );
   }
+
+  // =====================================================
+  // SUPABASE SERVER CLIENT
+  // =====================================================
 
   const supabase = createServerClient(
     supabaseUrl,
@@ -66,20 +107,26 @@ export async function proxy(request: NextRequest) {
     }
   );
 
+  // =====================================================
+  // CEK USER
+  // =====================================================
+
   const {
     data: { user },
+    error,
   } = await supabase.auth.getUser();
 
-  const pathname = request.nextUrl.pathname;
+  if (error) {
+    console.log(
+      "[PROXY] Auth check:",
+      error.message
+    );
+  }
 
-  const publicPaths = [
-    "/login",
-  ];
+  // =====================================================
+  // BELUM LOGIN
+  // =====================================================
 
-  const isPublicPath =
-    publicPaths.includes(pathname);
-
-  // Belum login → login
   if (!user && !isPublicPath) {
     const loginUrl =
       request.nextUrl.clone();
@@ -92,10 +139,14 @@ export async function proxy(request: NextRequest) {
     );
   }
 
-  // Sudah login → jangan kembali ke login
+  // =====================================================
+  // SUDAH LOGIN
+  // =====================================================
+
   if (
     user &&
-    pathname === "/login"
+    (pathname === "/login" ||
+      pathname === "/register")
   ) {
     const dashboardUrl =
       request.nextUrl.clone();
@@ -108,11 +159,29 @@ export async function proxy(request: NextRequest) {
     );
   }
 
+  // =====================================================
+  // LANJUTKAN REQUEST
+  // =====================================================
+
   return response;
 }
 
+// =======================================================
+// MATCHER
+// =======================================================
+//
+// API sengaja dikeluarkan dari matcher.
+//
+// Jadi:
+//
+// /api/auth/login
+// /api/...
+//
+// tidak diproses oleh proxy.
+//
+
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js)$).*)",
+    "/((?!api|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js)$).*)",
   ],
 };
