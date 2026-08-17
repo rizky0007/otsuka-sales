@@ -1,13 +1,73 @@
-import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
+import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
-export async function POST(request: Request) {
-  try {
-    const body = await request.json();
+export const dynamic = "force-dynamic";
 
-    const username = String(body?.username ?? "").trim();
-    const password = String(body?.password ?? "");
+type CookieToSet = {
+  name: string;
+  value: string;
+  options?: Record<string, unknown>;
+};
+
+export async function POST(request: NextRequest) {
+  const cookiesToSet: CookieToSet[] = [];
+
+  try {
+    // =====================================================
+    // SUPABASE ENV
+    // =====================================================
+
+    const supabaseUrl =
+      process.env.NEXT_PUBLIC_SUPABASE_URL;
+
+    const supabaseKey =
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+
+    if (!supabaseUrl || !supabaseKey) {
+      console.error(
+        "[LOGIN] Supabase environment belum tersedia"
+      );
+
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Konfigurasi Supabase belum tersedia.",
+        },
+        { status: 500 }
+      );
+    }
+
+    // =====================================================
+    // REQUEST
+    // =====================================================
+
+    let body: {
+      username?: unknown;
+      password?: unknown;
+    };
+
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Data login tidak valid.",
+        },
+        { status: 400 }
+      );
+    }
+
+    const username =
+      typeof body.username === "string"
+        ? body.username.trim()
+        : "";
+
+    const password =
+      typeof body.password === "string"
+        ? body.password
+        : "";
 
     if (!username) {
       return NextResponse.json(
@@ -29,28 +89,13 @@ export async function POST(request: Request) {
       );
     }
 
-    const supabaseUrl =
-      process.env.NEXT_PUBLIC_SUPABASE_URL;
+    console.log(
+      `[LOGIN] Mencoba login username: ${username}`
+    );
 
-    const supabaseKey =
-      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
-
-    if (!supabaseUrl || !supabaseKey) {
-      console.error(
-        "SUPABASE ENVIRONMENT VARIABLES TIDAK TERSEDIA"
-      );
-
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            "Konfigurasi Supabase di server belum tersedia.",
-        },
-        { status: 500 }
-      );
-    }
-
-    const cookieStore = await cookies();
+    // =====================================================
+    // SUPABASE SERVER CLIENT
+    // =====================================================
 
     const supabase = createServerClient(
       supabaseUrl,
@@ -58,61 +103,33 @@ export async function POST(request: Request) {
       {
         cookies: {
           getAll() {
-            return cookieStore.getAll();
+            return request.cookies.getAll();
           },
 
-          setAll(cookiesToSet) {
-            try {
-              cookiesToSet.forEach(
-                ({
-                  name,
-                  value,
-                  options,
-                }) => {
-                  cookieStore.set(
-                    name,
-                    value,
-                    options
-                  );
-                }
-              );
-            } catch (error) {
-              console.error(
-                "Gagal menyimpan cookie Supabase:",
-                error
-              );
-            }
+          setAll(cookies) {
+            cookiesToSet.push(...cookies);
           },
         },
       }
     );
 
-    /*
-     * =====================================================
-     * 1. CARI EMAIL BERDASARKAN USERNAME
-     * =====================================================
-     */
+    // =====================================================
+    // CARI EMAIL BERDASARKAN USERNAME
+    // =====================================================
 
     const {
       data: email,
       error: lookupError,
-    } = await supabase.rpc("get_login_email", {
-      p_username: username,
-    });
-
-    console.log(
-      "LOGIN USERNAME:",
-      username
-    );
-
-    console.log(
-      "LOGIN EMAIL:",
-      email
+    } = await supabase.rpc(
+      "get_login_email",
+      {
+        p_username: username,
+      }
     );
 
     if (lookupError) {
       console.error(
-        "GET LOGIN EMAIL ERROR:",
+        "[LOGIN] RPC ERROR:",
         lookupError
       );
 
@@ -120,33 +137,34 @@ export async function POST(request: Request) {
         {
           success: false,
           message:
-            "Gagal mencari akun.",
-          detail:
-            process.env.NODE_ENV ===
-            "development"
-              ? lookupError.message
-              : undefined,
+            "Gagal mencari akun. " +
+            lookupError.message,
         },
-        { status: 400 }
+        { status: 500 }
       );
     }
 
     if (!email) {
+      console.log(
+        `[LOGIN] Username tidak ditemukan: ${username}`
+      );
+
       return NextResponse.json(
         {
           success: false,
-          message:
-            "Username tidak ditemukan.",
+          message: "Username tidak ditemukan.",
         },
-        { status: 401 }
+        { status: 404 }
       );
     }
 
-    /*
-     * =====================================================
-     * 2. LOGIN SUPABASE AUTH
-     * =====================================================
-     */
+    console.log(
+      `[LOGIN] Email ditemukan: ${String(email)}`
+    );
+
+    // =====================================================
+    // LOGIN SUPABASE AUTH
+    // =====================================================
 
     const {
       data: authData,
@@ -159,8 +177,8 @@ export async function POST(request: Request) {
 
     if (authError) {
       console.error(
-        "SUPABASE AUTH ERROR:",
-        authError
+        "[LOGIN] AUTH ERROR:",
+        authError.message
       );
 
       return NextResponse.json(
@@ -173,28 +191,11 @@ export async function POST(request: Request) {
       );
     }
 
-    if (!authData.user) {
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            "Login gagal. User tidak ditemukan.",
-        },
-        { status: 401 }
+    if (!authData.user || !authData.session) {
+      console.error(
+        "[LOGIN] User/session tidak tersedia"
       );
-    }
 
-    /*
-     * =====================================================
-     * 3. PASTIKAN SESSION TERBENTUK
-     * =====================================================
-     */
-
-    const {
-      data: sessionData,
-    } = await supabase.auth.getSession();
-
-    if (!sessionData.session) {
       return NextResponse.json(
         {
           success: false,
@@ -205,24 +206,57 @@ export async function POST(request: Request) {
       );
     }
 
-    /*
-     * =====================================================
-     * 4. LOGIN BERHASIL
-     * =====================================================
-     */
+    console.log(
+      "[LOGIN] Auth berhasil:",
+      authData.user.id
+    );
 
-    return NextResponse.json({
-      success: true,
-      message:
-        "Login berhasil.",
-      user: {
-        id: authData.user.id,
-        email: authData.user.email,
+    console.log(
+      "[LOGIN] Cookie yang akan disimpan:",
+      cookiesToSet.length
+    );
+
+    // =====================================================
+    // RESPONSE
+    // =====================================================
+
+    const response = NextResponse.json(
+      {
+        success: true,
+        message: "Login berhasil.",
+        user: {
+          id: authData.user.id,
+          email:
+            authData.user.email ?? null,
+        },
       },
-    });
+      {
+        status: 200,
+      }
+    );
+
+    // =====================================================
+    // SIMPAN COOKIE SUPABASE
+    // =====================================================
+
+    for (const cookie of cookiesToSet) {
+      response.cookies.set(
+        cookie.name,
+        cookie.value,
+        cookie.options as Parameters<
+          typeof response.cookies.set
+        >[2]
+      );
+    }
+
+    console.log(
+      `[LOGIN] Login berhasil untuk ${username}`
+    );
+
+    return response;
   } catch (error) {
     console.error(
-      "LOGIN API ERROR:",
+      "[LOGIN] UNEXPECTED ERROR:",
       error
     );
 
@@ -231,13 +265,6 @@ export async function POST(request: Request) {
         success: false,
         message:
           "Terjadi kesalahan pada server.",
-        detail:
-          process.env.NODE_ENV ===
-          "development"
-            ? error instanceof Error
-              ? error.message
-              : String(error)
-            : undefined,
       },
       { status: 500 }
     );

@@ -1,22 +1,17 @@
 "use client";
 
-import {
-  FormEvent,
-  useEffect,
-  useState,
-} from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
+
 import {
   ArrowRight,
   Eye,
   EyeOff,
   LockKeyhole,
-  LogIn,
-  ShieldCheck,
-  UserRound,
-  AlertCircle,
   Loader2,
-  CheckCircle2,
+  UserRound,
+  Zap,
 } from "lucide-react";
 
 export default function LoginPage() {
@@ -31,53 +26,45 @@ export default function LoginPage() {
   const [loading, setLoading] =
     useState(false);
 
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
+  const [checkingSession, setCheckingSession] =
+    useState(true);
 
-  // =====================================================
-  // JIKA SUDAH LOGIN
-  // =====================================================
+  const [error, setError] =
+    useState("");
+
+  /* ============================================================
+     CHECK SESSION
+  ============================================================ */
 
   useEffect(() => {
     let mounted = true;
 
-    async function checkSession() {
+    const checkSession = async () => {
       try {
-        const response = await fetch(
-          "/api/auth/session",
-          {
-            method: "GET",
-            cache: "no-store",
-            credentials: "include",
-          }
-        );
+        const supabase = createClient();
 
-        if (!response.ok) return;
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
 
-        const contentType =
-          response.headers.get("content-type") || "";
+        if (!mounted) return;
 
-        if (
-          !contentType.includes(
-            "application/json"
-          )
-        ) {
+        if (session?.user) {
+          router.replace("/");
+          router.refresh();
           return;
         }
-
-        const data = await response.json();
-
-        if (
-          mounted &&
-          data?.authenticated
-        ) {
-          router.replace("/");
+      } catch (err) {
+        console.error(
+          "Session check error:",
+          err
+        );
+      } finally {
+        if (mounted) {
+          setCheckingSession(false);
         }
-      } catch {
-        // Tidak perlu menampilkan error.
-        // User tetap bisa login.
       }
-    }
+    };
 
     checkSession();
 
@@ -86,582 +73,470 @@ export default function LoginPage() {
     };
   }, [router]);
 
-  // =====================================================
-  // LOGIN
-  // =====================================================
+  /* ============================================================
+     LOGIN
+  ============================================================ */
 
-  async function handleLogin(
+  const handleLogin = async (
     e: FormEvent<HTMLFormElement>
-  ) {
+  ) => {
     e.preventDefault();
 
     if (loading) return;
 
     setError("");
-    setSuccess("");
-
-    const cleanUsername =
-      username.trim();
-
-    if (!cleanUsername) {
-      setError(
-        "Username wajib diisi."
-      );
-      return;
-    }
-
-    if (!password) {
-      setError(
-        "Password wajib diisi."
-      );
-      return;
-    }
-
     setLoading(true);
 
     try {
-      // =================================================
-      // REQUEST KE SERVER API
-      // =================================================
+      const cleanUsername =
+        username.trim().toLowerCase();
 
-      const response = await fetch(
-        "/api/auth/login",
-        {
-          method: "POST",
-
-          headers: {
-            "Content-Type":
-              "application/json",
-
-            Accept:
-              "application/json",
-          },
-
-          credentials: "include",
-
-          cache: "no-store",
-
-          body: JSON.stringify({
-            username: cleanUsername,
-            password,
-          }),
-        }
-      );
-
-      // =================================================
-      // BACA RESPONSE DENGAN AMAN
-      // =================================================
-
-      const contentType =
-        response.headers.get(
-          "content-type"
-        ) || "";
-
-      const rawText =
-        await response.text();
-
-      console.log(
-        "[LOGIN] HTTP STATUS:",
-        response.status
-      );
-
-      console.log(
-        "[LOGIN] CONTENT TYPE:",
-        contentType
-      );
-
-      console.log(
-        "[LOGIN] RESPONSE:",
-        rawText
-      );
-
-      let data: any = null;
-
-      // =================================================
-      // RESPONSE JSON
-      // =================================================
-
-      if (
-        contentType.includes(
-          "application/json"
-        )
-      ) {
-        try {
-          data = JSON.parse(rawText);
-        } catch (jsonError) {
-          console.error(
-            "[LOGIN] JSON PARSE ERROR:",
-            jsonError
-          );
-        }
+      if (!cleanUsername) {
+        throw new Error(
+          "Username wajib diisi."
+        );
       }
 
-      // =================================================
-      // RESPONSE BUKAN JSON
-      // =================================================
+      if (!password) {
+        throw new Error(
+          "Password wajib diisi."
+        );
+      }
 
-      if (!data) {
+      /*
+       * Username internal Supabase
+       *
+       * tort04
+       * ↓
+       * tort04@otsuka.local
+       */
+      const loginEmail =
+        `${cleanUsername}@otsuka.local`;
+
+      const supabase = createClient();
+
+      const {
+        data,
+        error: loginError,
+      } =
+        await supabase.auth.signInWithPassword({
+          email: loginEmail,
+          password,
+        });
+
+      if (loginError) {
+        console.error(
+          "Supabase login error:",
+          loginError
+        );
+
+        const message =
+          loginError.message?.toLowerCase() ||
+          "";
+
         if (
-          rawText.includes(
-            "<!DOCTYPE"
-          ) ||
-          rawText.includes(
-            "<html"
+          message.includes(
+            "invalid login credentials"
           )
         ) {
           throw new Error(
-            "Server mengembalikan halaman HTML. Pastikan API /api/auth/login tersedia dan tidak diarahkan oleh middleware."
+            "Username atau password salah."
+          );
+        }
+
+        if (
+          message.includes(
+            "email not confirmed"
+          )
+        ) {
+          throw new Error(
+            "Akun belum dikonfirmasi."
           );
         }
 
         throw new Error(
-          "Response dari server tidak valid."
+          loginError.message
         );
       }
 
-      // =================================================
-      // LOGIN GAGAL
-      // =================================================
-
-      if (
-        !response.ok ||
-        data.success !== true
-      ) {
+      if (!data.user) {
         throw new Error(
-          data.message ||
-            "Username atau password salah."
+          "User tidak ditemukan."
         );
       }
 
-      // =================================================
-      // LOGIN BERHASIL
-      // =================================================
+      if (!data.session) {
+        throw new Error(
+          "Session tidak berhasil dibuat."
+        );
+      }
 
-      console.log(
-        "[LOGIN] LOGIN BERHASIL",
-        data
-      );
-
-      setError("");
-
-      setSuccess(
-        "Login berhasil. Membuka dashboard..."
-      );
-
-      // =================================================
-      // PENTING:
-      // Cookie dari API sudah diterima browser.
-      //
-      // Tunggu sedikit agar cookie/session
-      // tersimpan sebelum pindah halaman.
-      // =================================================
-
-      await new Promise(
-        (resolve) =>
-          setTimeout(resolve, 500)
-      );
-
-      // =================================================
-      // PINDAH KE DASHBOARD
-      // =================================================
-
+      /*
+       * LOGIN BERHASIL
+       *
+       * http://localhost:3000/
+       */
       router.replace("/");
-
       router.refresh();
     } catch (err) {
       console.error(
-        "[LOGIN] ERROR:",
+        "LOGIN ERROR:",
         err
       );
 
-      if (
+      setError(
         err instanceof Error
-      ) {
-        setError(err.message);
-      } else {
-        setError(
-          "Terjadi kesalahan saat login."
-        );
-      }
+          ? err.message
+          : "Login gagal. Silakan coba lagi."
+      );
     } finally {
       setLoading(false);
     }
+  };
+
+  /* ============================================================
+     LOADING
+  ============================================================ */
+
+  if (checkingSession) {
+    return (
+      <main className="flex min-h-dvh items-center justify-center overflow-hidden bg-[#03152f]">
+
+        <div className="absolute h-[300px] w-[300px] rounded-full bg-blue-500/20 blur-[100px]" />
+
+        <div className="relative flex flex-col items-center gap-4">
+
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-blue-300/20 bg-blue-500/10 shadow-[0_0_40px_rgba(59,130,246,0.25)] backdrop-blur-xl">
+            <Loader2 className="h-6 w-6 animate-spin text-cyan-300" />
+          </div>
+
+          <p className="text-sm text-blue-200/60">
+            Memuat Otsuka Sales...
+          </p>
+
+        </div>
+      </main>
+    );
   }
 
-  // =====================================================
-  // ENTER KEY
-  // =====================================================
-
-  function handleUsernameKeyDown(
-    e: React.KeyboardEvent<HTMLInputElement>
-  ) {
-    if (e.key === "Enter") {
-      e.preventDefault();
-
-      const passwordInput =
-        document.getElementById(
-          "password"
-        ) as HTMLInputElement | null;
-
-      passwordInput?.focus();
-    }
-  }
+  /* ============================================================
+     LOGIN PAGE
+  ============================================================ */
 
   return (
-    <main className="relative min-h-screen overflow-hidden bg-[#020817] text-white">
-      {/* =================================================
-          BACKGROUND
-      ================================================= */}
+    <main className="relative min-h-dvh overflow-hidden bg-[#03152f] text-white">
 
-      <div className="pointer-events-none absolute inset-0">
-        {/* GRID */}
+      {/* ========================================================
+          BACKGROUND GLOW
+      ======================================================== */}
+
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+
+        {/* Top left */}
+
+        <div className="absolute -left-32 -top-32 h-[360px] w-[360px] rounded-full bg-blue-600/30 blur-[110px] sm:h-[500px] sm:w-[500px]" />
+
+        {/* Top right */}
+
+        <div className="absolute -right-40 top-[5%] h-[360px] w-[360px] rounded-full bg-cyan-400/20 blur-[120px] sm:h-[500px] sm:w-[500px]" />
+
+        {/* Bottom */}
+
+        <div className="absolute bottom-[-250px] left-[20%] h-[500px] w-[500px] rounded-full bg-indigo-600/30 blur-[130px]" />
+
+        {/* Center */}
+
+        <div className="absolute left-1/2 top-1/2 h-[350px] w-[350px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-blue-500/10 blur-[100px]" />
+
+        {/* Grid */}
 
         <div
-          className="absolute inset-0 opacity-[0.16]"
+          className="absolute inset-0 opacity-[0.025]"
           style={{
-            backgroundImage: `
-              linear-gradient(
-                rgba(148,163,184,0.16) 1px,
-                transparent 1px
-              ),
-              linear-gradient(
-                90deg,
-                rgba(148,163,184,0.16) 1px,
-                transparent 1px
-              )
-            `,
-            backgroundSize:
-              "52px 52px",
+            backgroundImage:
+              "linear-gradient(rgba(255,255,255,1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,1) 1px, transparent 1px)",
+            backgroundSize: "42px 42px",
           }}
         />
 
-        {/* BLUE GLOW */}
-
-        <div className="absolute -left-40 -top-40 h-[500px] w-[500px] rounded-full bg-blue-600/15 blur-[120px]" />
-
-        {/* CYAN GLOW */}
-
-        <div className="absolute -bottom-48 -right-32 h-[500px] w-[500px] rounded-full bg-cyan-500/10 blur-[120px]" />
-
-        {/* CENTER GLOW */}
-
-        <div className="absolute left-1/2 top-1/2 h-[500px] w-[700px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-blue-500/[0.03] blur-[100px]" />
       </div>
 
-      {/* =================================================
-          HEADER
-      ================================================= */}
+      {/* ========================================================
+          MAIN CONTAINER
+      ======================================================== */}
 
-      <div className="relative z-10 flex min-h-screen items-center justify-center px-4 py-8 sm:px-6 lg:px-8">
-        <div className="w-full max-w-[760px]">
+      <div className="relative flex min-h-dvh w-full items-center justify-center px-4 py-6 sm:px-6 sm:py-10">
 
-          {/* BRAND */}
+        <div className="w-full max-w-[470px]">
 
-          <div className="mb-5 text-center sm:mb-7">
-            <div className="inline-flex items-center gap-2 rounded-full border border-slate-700/70 bg-slate-900/50 px-4 py-2 text-xs font-semibold tracking-[0.18em] text-slate-400 backdrop-blur-xl">
-              <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.8)]" />
+          {/* ==================================================
+              LOGO
+          ================================================== */}
 
-              SALES MANAGEMENT SYSTEM
+          <div className="mb-6 flex justify-center sm:mb-8">
+
+            <div className="group relative">
+
+              {/* Glow */}
+
+              <div className="absolute inset-0 rounded-[22px] bg-blue-500/40 blur-xl transition duration-500 group-hover:bg-cyan-400/40" />
+
+              {/* Logo */}
+
+              <div className="relative flex h-16 w-16 items-center justify-center rounded-[22px] border border-blue-300/20 bg-gradient-to-br from-blue-500/30 via-blue-600/20 to-cyan-400/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.12),0_20px_50px_rgba(0,0,0,0.3)] backdrop-blur-xl sm:h-[70px] sm:w-[70px]">
+
+                <Zap className="h-7 w-7 fill-cyan-300 text-cyan-300 sm:h-8 sm:w-8" />
+
+              </div>
+
             </div>
+
           </div>
 
-          {/* =================================================
-              LOGIN CARD
-          ================================================= */}
+          {/* ==================================================
+              TITLE
+          ================================================== */}
 
-          <section className="relative overflow-hidden rounded-[30px] border border-white/[0.10] bg-slate-900/70 shadow-[0_30px_100px_rgba(0,0,0,0.45)] backdrop-blur-2xl">
+          <div className="mb-6 text-center sm:mb-8">
 
-            {/* TOP LINE */}
+            <div className="mb-2 flex items-center justify-center gap-2">
 
-            <div className="absolute left-0 right-0 top-0 h-px bg-gradient-to-r from-transparent via-blue-500/70 to-transparent" />
+              <span className="h-1.5 w-1.5 rounded-full bg-cyan-300 shadow-[0_0_12px_rgba(103,232,249,0.9)]" />
 
-            {/* CARD CONTENT */}
+              <span className="text-[10px] font-semibold uppercase tracking-[0.28em] text-cyan-300/80">
+                Sales Management
+              </span>
 
-            <div className="p-6 sm:p-9 md:p-12">
+              <span className="h-1.5 w-1.5 rounded-full bg-blue-400 shadow-[0_0_12px_rgba(96,165,250,0.9)]" />
 
-              {/* =================================================
-                  ACCESS BADGE
-              ================================================= */}
+            </div>
 
-              <div className="mb-7 inline-flex items-center gap-2 rounded-full border border-slate-700/80 bg-slate-800/60 px-4 py-2 text-xs font-bold tracking-[0.16em] text-slate-400">
-                <ShieldCheck
-                  size={15}
-                  className="text-emerald-400"
-                />
+            <h1 className="text-3xl font-black tracking-tight sm:text-4xl">
+              Otsuka{" "}
+              <span className="bg-gradient-to-r from-cyan-300 via-blue-400 to-indigo-400 bg-clip-text text-transparent">
+                Sales
+              </span>
+            </h1>
 
-                SECURE ACCESS
+            <p className="mx-auto mt-3 max-w-xs text-sm leading-6 text-blue-100/50">
+              Kelola aktivitas sales dengan
+              lebih cepat dan terorganisir.
+            </p>
+
+          </div>
+
+          {/* ==================================================
+              GLASS FORM
+          ================================================== */}
+
+          <div className="relative overflow-hidden rounded-[28px] border border-blue-200/15 bg-blue-950/30 p-5 shadow-[0_30px_100px_rgba(0,0,0,0.4)] backdrop-blur-2xl sm:p-7">
+
+            {/* Card highlight */}
+
+            <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-cyan-300/60 to-transparent" />
+
+            <div className="pointer-events-none absolute -right-24 -top-24 h-48 w-48 rounded-full bg-blue-400/10 blur-3xl" />
+
+            {/* Card heading */}
+
+            <div className="relative mb-6">
+
+              <h2 className="text-lg font-bold text-white">
+                Selamat datang kembali
+              </h2>
+
+              <p className="mt-1 text-xs leading-5 text-blue-100/40">
+                Masuk menggunakan akun sales Anda.
+              </p>
+
+            </div>
+
+            {/* =================================================
+                FORM
+            ================================================= */}
+
+            <form
+              onSubmit={handleLogin}
+              className="relative space-y-4"
+            >
+
+              {/* Username */}
+
+              <div>
+
+                <label
+                  htmlFor="username"
+                  className="mb-2 block text-xs font-semibold text-blue-100/70"
+                >
+                  Username
+                </label>
+
+                <div className="group relative">
+
+                  <div className="pointer-events-none absolute left-0 top-0 flex h-full w-12 items-center justify-center">
+
+                    <UserRound className="h-[18px] w-[18px] text-blue-200/30 transition-colors group-focus-within:text-cyan-300" />
+
+                  </div>
+
+                  <input
+                    id="username"
+                    name="username"
+                    type="text"
+                    autoComplete="username"
+                    value={username}
+                    onChange={(e) =>
+                      setUsername(
+                        e.target.value
+                      )
+                    }
+                    placeholder="Masukkan username"
+                    disabled={loading}
+                    required
+                    spellCheck={false}
+                    className="h-14 w-full rounded-2xl border border-blue-200/10 bg-white/[0.045] pl-12 pr-4 text-sm text-white outline-none transition-all placeholder:text-blue-100/25 hover:border-blue-200/20 focus:border-cyan-300/40 focus:bg-blue-400/[0.06] focus:shadow-[0_0_0_4px_rgba(34,211,238,0.06)] disabled:cursor-not-allowed disabled:opacity-50"
+                  />
+
+                </div>
+
               </div>
 
-              {/* =================================================
-                  TITLE
-              ================================================= */}
+              {/* Password */}
 
-              <div className="mb-8">
-                <h1 className="text-[clamp(2rem,5vw,3.3rem)] font-black leading-[1.05] tracking-tight text-white">
-                  Selamat datang
-                  <br className="sm:hidden" />{" "}
-                  kembali{" "}
-                  <span className="inline-block">
-                    👋
-                  </span>
-                </h1>
+              <div>
 
-                <p className="mt-4 max-w-xl text-base leading-7 text-slate-400 sm:text-lg">
-                  Masuk menggunakan akun
-                  sales Anda untuk
-                  melanjutkan aktivitas.
-                </p>
+                <label
+                  htmlFor="password"
+                  className="mb-2 block text-xs font-semibold text-blue-100/70"
+                >
+                  Password
+                </label>
+
+                <div className="group relative">
+
+                  <div className="pointer-events-none absolute left-0 top-0 flex h-full w-12 items-center justify-center">
+
+                    <LockKeyhole className="h-[18px] w-[18px] text-blue-200/30 transition-colors group-focus-within:text-cyan-300" />
+
+                  </div>
+
+                  <input
+                    id="password"
+                    name="password"
+                    type={
+                      showPassword
+                        ? "text"
+                        : "password"
+                    }
+                    autoComplete="current-password"
+                    value={password}
+                    onChange={(e) =>
+                      setPassword(
+                        e.target.value
+                      )
+                    }
+                    placeholder="Masukkan password"
+                    disabled={loading}
+                    required
+                    className="h-14 w-full rounded-2xl border border-blue-200/10 bg-white/[0.045] pl-12 pr-12 text-sm text-white outline-none transition-all placeholder:text-blue-100/25 hover:border-blue-200/20 focus:border-cyan-300/40 focus:bg-blue-400/[0.06] focus:shadow-[0_0_0_4px_rgba(34,211,238,0.06)] disabled:cursor-not-allowed disabled:opacity-50"
+                  />
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setShowPassword(
+                        (value) => !value
+                      )
+                    }
+                    disabled={loading}
+                    aria-label={
+                      showPassword
+                        ? "Sembunyikan password"
+                        : "Tampilkan password"
+                    }
+                    className="absolute right-0 top-0 flex h-full w-12 items-center justify-center text-blue-100/30 transition-colors hover:text-cyan-300 disabled:opacity-40"
+                  >
+                    {showPassword ? (
+                      <EyeOff className="h-[18px] w-[18px]" />
+                    ) : (
+                      <Eye className="h-[18px] w-[18px]" />
+                    )}
+                  </button>
+
+                </div>
+
               </div>
 
-              {/* =================================================
-                  ERROR
-              ================================================= */}
+              {/* Error */}
 
               {error && (
-                <div
-                  role="alert"
-                  className="mb-7 flex gap-4 rounded-2xl border border-red-400/25 bg-red-500/[0.10] p-4 sm:p-5"
-                >
-                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-red-500/15">
-                    <AlertCircle
-                      size={22}
-                      className="text-red-400"
-                    />
-                  </div>
+                <div className="rounded-2xl border border-red-400/20 bg-red-500/[0.08] px-4 py-3">
 
-                  <div className="min-w-0">
-                    <p className="font-bold text-red-300">
-                      Login gagal
-                    </p>
+                  <p className="text-xs leading-5 text-red-300">
+                    {error}
+                  </p>
 
-                    <p className="mt-1 break-words text-sm leading-6 text-red-200/75">
-                      {error}
-                    </p>
-                  </div>
                 </div>
               )}
 
-              {/* =================================================
-                  SUCCESS
-              ================================================= */}
+              {/* Login button */}
 
-              {success && (
-                <div
-                  role="status"
-                  className="mb-7 flex gap-4 rounded-2xl border border-emerald-400/25 bg-emerald-500/[0.08] p-4 sm:p-5"
-                >
-                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-500/15">
-                    <CheckCircle2
-                      size={22}
-                      className="text-emerald-400"
-                    />
-                  </div>
-
-                  <div>
-                    <p className="font-bold text-emerald-300">
-                      Login berhasil
-                    </p>
-
-                    <p className="mt-1 text-sm text-emerald-200/70">
-                      Membuka dashboard...
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {/* =================================================
-                  FORM
-              ================================================= */}
-
-              <form
-                onSubmit={handleLogin}
-                className="space-y-6"
+              <button
+                type="submit"
+                disabled={loading}
+                className="group relative mt-2 flex h-14 w-full items-center justify-center gap-2 overflow-hidden rounded-2xl bg-gradient-to-r from-blue-600 via-blue-500 to-cyan-400 text-sm font-bold text-white shadow-[0_12px_35px_rgba(37,99,235,0.28)] transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_18px_45px_rgba(34,211,238,0.22)] active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-60"
               >
 
-                {/* =================================================
-                    USERNAME
-                ================================================= */}
+                {/* Shine */}
 
-                <div>
-                  <label
-                    htmlFor="username"
-                    className="mb-2.5 block text-xs font-extrabold tracking-[0.14em] text-slate-400"
-                  >
-                    USERNAME
-                  </label>
+                <span className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/20 to-transparent transition-transform duration-700 group-hover:translate-x-full" />
 
-                  <div className="group relative">
-                    <UserRound
-                      size={21}
-                      className="pointer-events-none absolute left-5 top-1/2 -translate-y-1/2 text-slate-500 transition group-focus-within:text-blue-400"
-                    />
+                {loading ? (
+                  <>
+                    <Loader2 className="relative h-4 w-4 animate-spin" />
 
-                    <input
-                      id="username"
-                      name="username"
-                      type="text"
-                      value={username}
-                      onChange={(e) =>
-                        setUsername(
-                          e.target.value
-                        )
-                      }
-                      onKeyDown={
-                        handleUsernameKeyDown
-                      }
-                      placeholder="Masukkan username"
-                      autoComplete="username"
-                      autoCapitalize="none"
-                      spellCheck={false}
-                      disabled={loading}
-                      className="h-[62px] w-full rounded-2xl border border-slate-700/80 bg-slate-800/70 pl-14 pr-5 text-base font-semibold text-white outline-none transition-all placeholder:text-slate-500 hover:border-slate-600 focus:border-blue-500 focus:bg-slate-800 focus:ring-4 focus:ring-blue-500/10 disabled:cursor-not-allowed disabled:opacity-60"
-                    />
-                  </div>
-                </div>
+                    <span className="relative">
+                      Memproses...
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span className="relative">
+                      Masuk ke Sistem
+                    </span>
 
-                {/* =================================================
-                    PASSWORD
-                ================================================= */}
+                    <ArrowRight className="relative h-4 w-4 transition-transform duration-300 group-hover:translate-x-1" />
+                  </>
+                )}
 
-                <div>
-                  <label
-                    htmlFor="password"
-                    className="mb-2.5 block text-xs font-extrabold tracking-[0.14em] text-slate-400"
-                  >
-                    PASSWORD
-                  </label>
+              </button>
 
-                  <div className="group relative">
-                    <LockKeyhole
-                      size={21}
-                      className="pointer-events-none absolute left-5 top-1/2 -translate-y-1/2 text-slate-500 transition group-focus-within:text-blue-400"
-                    />
+            </form>
 
-                    <input
-                      id="password"
-                      name="password"
-                      type={
-                        showPassword
-                          ? "text"
-                          : "password"
-                      }
-                      value={password}
-                      onChange={(e) =>
-                        setPassword(
-                          e.target.value
-                        )
-                      }
-                      placeholder="Masukkan password"
-                      autoComplete="current-password"
-                      disabled={loading}
-                      className="h-[62px] w-full rounded-2xl border border-slate-700/80 bg-slate-800/70 pl-14 pr-14 text-base font-semibold text-white outline-none transition-all placeholder:text-slate-500 hover:border-slate-600 focus:border-blue-500 focus:bg-slate-800 focus:ring-4 focus:ring-blue-500/10 disabled:cursor-not-allowed disabled:opacity-60"
-                    />
+            {/* =================================================
+                BOTTOM INFO
+            ================================================= */}
 
-                    <button
-                      type="button"
-                      aria-label={
-                        showPassword
-                          ? "Sembunyikan password"
-                          : "Tampilkan password"
-                      }
-                      onClick={() =>
-                        setShowPassword(
-                          (value) =>
-                            !value
-                        )
-                      }
-                      disabled={loading}
-                      className="absolute right-3 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-xl text-slate-500 transition hover:bg-slate-700/70 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {showPassword ? (
-                        <EyeOff
-                          size={20}
-                        />
-                      ) : (
-                        <Eye
-                          size={20}
-                        />
-                      )}
-                    </button>
-                  </div>
-                </div>
+            <div className="relative mt-6 flex items-center justify-center gap-2">
 
-                {/* =================================================
-                    SUBMIT
-                ================================================= */}
+              <div className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.7)]" />
 
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="group relative mt-2 flex h-[64px] w-full items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-r from-blue-600 via-blue-500 to-cyan-500 text-base font-extrabold text-white shadow-[0_15px_35px_rgba(37,99,235,0.25)] transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_20px_45px_rgba(37,99,235,0.35)] active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-70"
-                >
-                  {/* SHINE */}
+              <span className="text-[10px] text-blue-100/30">
+                Secure authentication
+              </span>
 
-                  <span className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/15 to-transparent transition-transform duration-700 group-hover:translate-x-full" />
-
-                  {loading ? (
-                    <>
-                      <Loader2
-                        size={21}
-                        className="mr-3 animate-spin"
-                      />
-
-                      Memproses login...
-                    </>
-                  ) : (
-                    <>
-                      <LogIn
-                        size={21}
-                        className="mr-3"
-                      />
-
-                      Masuk ke Dashboard
-
-                      <ArrowRight
-                        size={22}
-                        className="ml-3 transition-transform duration-300 group-hover:translate-x-1"
-                      />
-                    </>
-                  )}
-                </button>
-              </form>
-
-              {/* =================================================
-                  DIVIDER
-              ================================================= */}
-
-              <div className="my-8 flex items-center gap-4">
-                <div className="h-px flex-1 bg-slate-800" />
-
-                <span className="text-[10px] font-bold tracking-[0.2em] text-slate-600">
-                  OTSUKA SALES
-                </span>
-
-                <div className="h-px flex-1 bg-slate-800" />
-              </div>
-
-              {/* =================================================
-                  FOOTER
-              ================================================= */}
-
-              <div className="text-center">
-                <p className="text-xs leading-6 text-slate-500 sm:text-sm">
-                  Gunakan akun yang telah
-                  terdaftar untuk mengakses
-                  sistem sales.
-                </p>
-              </div>
             </div>
-          </section>
 
-          {/* =================================================
-              BOTTOM
-          ================================================= */}
+          </div>
 
-          <p className="mt-5 text-center text-[11px] text-slate-600">
+          {/* Footer */}
+
+          <p className="mt-5 text-center text-[10px] text-blue-100/25">
             Otsuka Sales Management System
           </p>
+
         </div>
+
       </div>
     </main>
   );
