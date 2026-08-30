@@ -1,19 +1,49 @@
-import type { Metadata } from "next";
-import "./globals.css";
+"use client";
 
-export const metadata: Metadata = {
-  title: "Otsuka Sales Manager",
-  description: "Otsuka Sales Management",
-};
+import { useState } from "react";
 
-export default function RootLayout({
+import Sidebar from "@/components/Sidebar";
+import Header from "@/components/Header";
+
+export default function AppLayout({
   children,
-}: Readonly<{
+}: {
   children: React.ReactNode;
-}>) {
+}) {
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  const toggleSidebar = () => {
+    setSidebarOpen((prev) => !prev);
+  };
+
+  const closeSidebar = () => {
+    setSidebarOpen(false);
+  };
+
   return (
-    <html lang="id">
-      <body>{children}</body>
-    </html>
+    <div className="app-layout">
+      <Sidebar
+        isOpen={sidebarOpen}
+        onClose={closeSidebar}
+      />
+
+      {sidebarOpen && (
+        <div
+          className="sidebar-overlay"
+          onClick={closeSidebar}
+        />
+      )}
+
+      <div className="app-main">
+        <Header
+          onToggleSidebar={toggleSidebar}
+          sidebarOpen={sidebarOpen}
+        />
+
+        <main className="page-content">
+          {children}
+        </main>
+      </div>
+    </div>
   );
 }

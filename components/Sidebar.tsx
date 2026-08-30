@@ -2,16 +2,14 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useState } from "react";
 
 import {
   LayoutDashboard,
   TrendingUp,
   Store,
   CalendarDays,
-  Menu,
-  X,
   LogOut,
+  X,
 } from "lucide-react";
 
 import supabase from "@/lib/supabase/client";
@@ -39,25 +37,23 @@ const menuItems = [
   },
 ];
 
-export default function Sidebar() {
+interface SidebarProps {
+  isOpen: boolean;
+  onClose: () => void;
+}
+
+export default function Sidebar({
+  isOpen,
+  onClose,
+}: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
 
-  const [mobileOpen, setMobileOpen] = useState(false);
-
-  const toggleSidebar = () => {
-    setMobileOpen((prev) => !prev);
-  };
-
-  const closeSidebar = () => {
-    setMobileOpen(false);
-  };
-
   const handleLogout = async () => {
     try {
-      setMobileOpen(false);
-
       await supabase.auth.signOut();
+
+      onClose();
 
       router.replace("/login");
     } catch (error) {
@@ -66,96 +62,78 @@ export default function Sidebar() {
   };
 
   return (
-    <>
-      {/* TOMBOL MENU MOBILE - HANYA SATU */}
-      <button
-        type="button"
-        onClick={toggleSidebar}
-        className="mobile-menu-button"
-        aria-label={
-          mobileOpen ? "Tutup sidebar" : "Buka sidebar"
-        }
-      >
-        {mobileOpen ? (
-          <X size={24} />
-        ) : (
-          <Menu size={24} />
-        )}
-      </button>
+    <aside
+      className={`sidebar ${
+        isOpen ? "sidebar-open" : ""
+      }`}
+    >
+      <div className="sidebar-header">
+        <div className="sidebar-logo">
+          <div className="logo-icon">
+            O
+          </div>
 
-      {/* OVERLAY */}
-      {mobileOpen && (
-        <div
-          className="sidebar-overlay"
-          onClick={closeSidebar}
-        />
-      )}
+          <div>
+            <h2>
+              Otsuka Sales
+            </h2>
 
-      {/* SIDEBAR */}
-      <aside
-        className={`sidebar ${
-          mobileOpen ? "sidebar-open" : ""
-        }`}
-      >
-        {/* HEADER */}
-        <div className="sidebar-header">
-          <div className="sidebar-logo">
-            <div className="logo-icon">
-              O
-            </div>
-
-            <div>
-              <h2>Otsuka Sales</h2>
-
-              <span>
-                Sales Manager
-              </span>
-            </div>
+            <span>
+              Sales Manager
+            </span>
           </div>
         </div>
 
-        {/* NAVIGATION */}
-        <nav className="sidebar-nav">
-          {menuItems.map((item) => {
-            const Icon = item.icon;
+        {/* TOMBOL CLOSE HANYA MOBILE */}
+        <button
+          type="button"
+          onClick={onClose}
+          className="sidebar-close"
+          aria-label="Tutup sidebar"
+        >
+          <X size={21} />
+        </button>
+      </div>
 
-            const isActive =
-              pathname === item.href;
+      <nav className="sidebar-nav">
+        {menuItems.map((item) => {
+          const Icon = item.icon;
 
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                onClick={closeSidebar}
-                className={`sidebar-menu ${
-                  isActive ? "active" : ""
-                }`}
-              >
-                <Icon size={20} />
+          const isActive =
+            pathname === item.href;
 
-                <span>
-                  {item.name}
-                </span>
-              </Link>
-            );
-          })}
-        </nav>
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              onClick={onClose}
+              className={`sidebar-menu ${
+                isActive ? "active" : ""
+              }`}
+            >
+              <Icon size={20} />
 
-        {/* LOGOUT */}
-        <div className="sidebar-bottom">
-          <button
-            type="button"
-            onClick={handleLogout}
-            className="sidebar-menu logout"
-          >
-            <LogOut size={20} />
+              <span>
+                {item.name}
+              </span>
+            </Link>
+          );
+        })}
+      </nav>
 
-            <span>
-              Logout
-            </span>
-          </button>
-        </div>
-      </aside>
-    </>
+      <div className="sidebar-bottom">
+        <button
+          type="button"
+          onClick={handleLogout}
+          className="sidebar-menu logout"
+        >
+          <LogOut size={20} />
+
+          <span>
+            Logout
+          </span>
+        </button>
+      </div>
+    </aside>
   );
 }
