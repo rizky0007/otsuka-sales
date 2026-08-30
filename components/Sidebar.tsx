@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { useState } from "react";
+
 import {
   LayoutDashboard,
   TrendingUp,
@@ -11,7 +13,8 @@ import {
   X,
   LogOut,
 } from "lucide-react";
-import { useState } from "react";
+
+import supabase from "@/lib/supabase/client";
 
 const menuItems = [
   {
@@ -38,25 +41,49 @@ const menuItems = [
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
+
   const [mobileOpen, setMobileOpen] = useState(false);
+
+  const toggleSidebar = () => {
+    setMobileOpen((prev) => !prev);
+  };
 
   const closeSidebar = () => {
     setMobileOpen(false);
   };
 
+  const handleLogout = async () => {
+    try {
+      setMobileOpen(false);
+
+      await supabase.auth.signOut();
+
+      router.replace("/login");
+    } catch (error) {
+      console.error("Logout error:", error);
+    }
+  };
+
   return (
     <>
-      {/* Tombol Menu Mobile */}
+      {/* TOMBOL MENU MOBILE - HANYA SATU */}
       <button
         type="button"
+        onClick={toggleSidebar}
         className="mobile-menu-button"
-        onClick={() => setMobileOpen(true)}
-        aria-label="Buka menu"
+        aria-label={
+          mobileOpen ? "Tutup sidebar" : "Buka sidebar"
+        }
       >
-        <Menu size={24} />
+        {mobileOpen ? (
+          <X size={24} />
+        ) : (
+          <Menu size={24} />
+        )}
       </button>
 
-      {/* Overlay Mobile */}
+      {/* OVERLAY */}
       {mobileOpen && (
         <div
           className="sidebar-overlay"
@@ -64,33 +91,30 @@ export default function Sidebar() {
         />
       )}
 
-      {/* Sidebar */}
+      {/* SIDEBAR */}
       <aside
         className={`sidebar ${
           mobileOpen ? "sidebar-open" : ""
         }`}
       >
+        {/* HEADER */}
         <div className="sidebar-header">
           <div className="sidebar-logo">
-            <div className="logo-icon">O</div>
+            <div className="logo-icon">
+              O
+            </div>
 
             <div>
               <h2>Otsuka Sales</h2>
-              <span>Sales Manager</span>
+
+              <span>
+                Sales Manager
+              </span>
             </div>
           </div>
-
-          {/* Tombol Tutup Mobile */}
-          <button
-            type="button"
-            className="close-sidebar-button"
-            onClick={closeSidebar}
-            aria-label="Tutup menu"
-          >
-            <X size={22} />
-          </button>
         </div>
 
+        {/* NAVIGATION */}
         <nav className="sidebar-nav">
           {menuItems.map((item) => {
             const Icon = item.icon;
@@ -102,29 +126,34 @@ export default function Sidebar() {
               <Link
                 key={item.href}
                 href={item.href}
+                onClick={closeSidebar}
                 className={`sidebar-menu ${
                   isActive ? "active" : ""
                 }`}
-                onClick={closeSidebar}
               >
                 <Icon size={20} />
 
-                <span>{item.name}</span>
+                <span>
+                  {item.name}
+                </span>
               </Link>
             );
           })}
         </nav>
 
+        {/* LOGOUT */}
         <div className="sidebar-bottom">
-          <Link
-            href="/login"
+          <button
+            type="button"
+            onClick={handleLogout}
             className="sidebar-menu logout"
-            onClick={closeSidebar}
           >
             <LogOut size={20} />
 
-            <span>Logout</span>
-          </Link>
+            <span>
+              Logout
+            </span>
+          </button>
         </div>
       </aside>
     </>
