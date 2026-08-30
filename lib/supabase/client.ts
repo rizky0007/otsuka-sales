@@ -1,21 +1,20 @@
 import { createBrowserClient } from "@supabase/ssr";
 
 export function createClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key =
+  const supabaseUrl =
+    process.env.NEXT_PUBLIC_SUPABASE_URL;
+
+  const supabaseKey =
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 
-  if (!url) {
+  if (!supabaseUrl || !supabaseKey) {
     throw new Error(
-      "NEXT_PUBLIC_SUPABASE_URL tidak ditemukan. Periksa .env.local."
+      "Supabase environment variables belum tersedia."
     );
   }
 
-  if (!key) {
-    throw new Error(
-      "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY tidak ditemukan. Periksa .env.local."
-    );
-  }
-
-  return createBrowserClient(url, key);
+  return createBrowserClient(
+    supabaseUrl,
+    supabaseKey
+  );
 }
